@@ -228,3 +228,103 @@ class RMSNorm(nn.Module):
         result=(x_float/rms)*self.weight
 
         return result.to(in_dtype)
+    
+
+"""
+norm1+casualSelfAttention
+norm2+FFN
+"""
+class TransformerBlock(nn.Module):
+    def __init__(
+        self,
+        d_model:int,
+        num_heads:int,
+        d_ff:int,
+        max_seq_len:int,
+        theta:float,
+        device=None,
+        dtype=None
+    ):
+        super().__init__()
+        self.attn=CasualSelfAttention(
+            d_model=d_model,
+            num_heads=num_heads,
+            max_seq_len=max_seq_len,
+            theta=theta,
+            device=device,
+            dtype=dtype
+        )
+
+        self.ln1=RMSNorm(d_model=d_model,device=device,dtype=dtype)
+        self.ln2=RMSNorm(d_model=d_model,device=device,dtype=dtype)
+        
+        self.ffn=SwiGLU(d_model=d_model,d_ff=d_ff,device=device,dtype=dtype)
+
+
+
+
+    def forward(self,x:torch.Tensor,token_positions:torch.Tensor=None)->torch.Tensor:
+        x=x+self.attn(self.ln1(x),token_positions=token_positions)
+
+        x=x+self.ffn(self.ln2(x))
+
+        return x
+
+
+class TransformerLM(nn.Module):
+    def __init__(
+            self,
+            vocab_size:int,
+            max_seq_len:int,
+            d_model:int,
+            num_layers:int,
+            num_heads:int,
+            d_ff:int,
+            rope_theta:float,
+            device=None,
+            dtype=None,
+            use_rms_norm:bool=True,
+            norm_mode:str='pre',
+            ffn_type:str='swiglu'
+    ):
+        super().__init__()
+        self.max_seq_len=max_seq_len
+
+        self.token_embeddings=Embedding(vocab_size,d_model,device=device,dtype=dtype)
+
+        self.layers=nn.ModuleList([
+            TransformerBlock(
+                d_model,num_heads,d_ff,max_seq_len,rope_theta,
+                device=device,dtype=dtype,
+                use_rms_norm=use_rms_norm,
+                norm_mode=norm_mode,
+                ffn_type=ffn_type
+            )
+            for _ in range(num_layers)
+        ])
+
+        if use_rms_norm:
+            self.ln_final=RMSNorm(d_model,device=device,dtype=dtype)
+        else:
+            self.ln_final=nn.Identity()
+
+        self.lm_head=Linear(d_model,vocab_size,device=device,dtype=dtype)
+
+    def forward(self,token_ids:torch.Tensor)->torch.Tensor:
+        b,s=token_ids.shape
+
+        # for rope
+        token_positions=torch.arange(s,device=token_ids.device).unsqueeze(0).expand(b,s)
+
+        # 1. embedding
+        x=self.token_embeddings(token_ids)
+
+        # 2. 
+        for layer in self.layers:
+            x=layer(x,token_positions=token_positions)
+        
+        # 3. 
+        x=self.ln_final(x)
+
+        # 4. 
+        return self.lm_head(x)
