@@ -172,4 +172,59 @@ class CasualSelfAttention(nn.Module):
 
         attn_out=rearrange(attn_out,'... h s d -> ... s (h d)')
         return self.output_proj(attn_out)
+
+
+def silu_fn(in_features):
+    return in_features*torch.sigmoid(in_features)
+
+class SwiGLU(nn.Module):
+    def __init__(
+            self,
+            d_model:int,
+            d_ff:int,
+            device=None,
+            dtype=None
+    ):
+        super().__init__()
+        self.d_ff=d_ff
+        self.d_model=d_model
+        self.w1=Linear(d_model,d_ff,device,dtype)
+        self.w3=Linear(d_model,d_ff,device,dtype)
+        self.w2=Linear(d_ff,d_model,device,dtype)
+
+    def forward(self,x:torch.Tensor)->torch.Tensor:
+        gate=silu_fn(self.w1(x))
+        signal=self.w3(x)
+
+        return self.w2(gate*signal)
     
+
+class RMSNorm(nn.Module):
+    def __init__(
+            self,
+            d_model:int,
+            eps:float=1e-5,
+            device=None,
+            dtype=None
+    ):
+        super().__init__()
+        factory_kwargs={
+            'device':device,
+            'dtype':dtype
+        }
+        self.weight=nn.Parameter(torch.ones(d_model,**factory_kwargs))
+        self.eps=eps
+    def forward(self,x:torch.Tensor)->torch.Tensor:    
+        # x:(batch_size,length,d_model)
+        in_dtype=x.dtype
+
+        x_float=x.to(torch.float32)
+
+        # rms=sqrt(mead(x^2)+eps)
+
+        ms=x_float.pow(2).mean(dim=-1,keepdim=True)
+        rms=torch.sqrt(ms+self.eps)
+
+        result=(x_float/rms)*self.weight
+
+        return result.to(in_dtype)
