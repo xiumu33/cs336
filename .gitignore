@@ -1,0 +1,21 @@
+# Data folder (excluded as requested)
+**/data/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Pytest cache
+.pytest_cache/
+
+# IDE
+.vscode/
+.idea/
+
+# Jupyter checkpoints
+.ipynb_checkpoints/
+
+# OS files
+.DS_Store
+Thumbs.db
